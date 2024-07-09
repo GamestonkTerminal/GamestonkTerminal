@@ -1,6 +1,7 @@
 # pylint: disable=W0613:unused-argument
 """Crypto Price Router."""
 
+from fastapi.responses import StreamingResponse
 from openbb_core.app.model.command_context import CommandContext
 from openbb_core.app.model.example import APIEx
 from openbb_core.app.model.obbject import OBBject
@@ -11,6 +12,9 @@ from openbb_core.app.provider_interface import (
 )
 from openbb_core.app.query import Query
 from openbb_core.app.router import Router
+from providers.binance.openbb_binance.models.crypto_historical import (
+    BinanceCryptoHistoricalFetcher,
+)
 
 router = Router(prefix="/price")
 
@@ -56,3 +60,16 @@ async def historical(
 ) -> OBBject:
     """Get historical price data for cryptocurrency pair(s) within a provider."""
     return await OBBject.from_query(Query(**locals()))
+
+
+@router.stream(methods=["GET"])
+async def live(symbol: str = "ethbtc", lifetime: int = 10, tld: str = "us") -> OBBject:
+    """Connect to Binance WebSocket Crypto Price data feed."""
+    generator = BinanceCryptoHistoricalFetcher().stream_data(
+        params={"symbol": symbol, "lifetime": lifetime, "tld": tld},
+        credentials=None,
+    )
+    return OBBject(
+        results=StreamingResponse(generator, media_type="application/x-ndjson"),
+        provider="binance",
+    )

@@ -5,6 +5,7 @@
 
 from typing import (
     Any,
+    AsyncIterator,
     Dict,
     Generic,
     Optional,
@@ -54,13 +55,18 @@ class Fetcher(Generic[Q, R]):
         """Asynchronously extract the data from the provider."""
 
     @staticmethod
+    async def atransform_data(
+        query: Q, data: Any, **kwargs
+    ) -> Union[R, AnnotatedResult[R]]:
+        """Asynchronously transform the provider-specific data."""
+
+    @staticmethod
     def extract_data(query: Q, credentials: Optional[Dict[str, str]]) -> Any:
         """Extract the data from the provider."""
 
     @staticmethod
     def transform_data(query: Q, data: Any, **kwargs) -> Union[R, AnnotatedResult[R]]:
         """Transform the provider-specific data."""
-        raise NotImplementedError
 
     def __init_subclass__(cls, *args, **kwargs):
         """Initialize the subclass."""
@@ -72,6 +78,15 @@ class Fetcher(Generic[Q, R]):
             raise NotImplementedError(
                 "Fetcher subclass must implement either extract_data or aextract_data"
                 " method. If both are implemented, aextract_data will be used as the"
+                " default."
+            )
+
+        if cls.atransform_data != Fetcher.atransform_data:
+            cls.transform_data = cls.atransform_data
+        elif cls.transform_data == Fetcher.transform_data:
+            raise NotImplementedError(
+                "Fetcher subclass must implement either transform_data or atransform_data"
+                " method. If both are implemented, atransform_data will be used as the"
                 " default."
             )
 
@@ -88,6 +103,22 @@ class Fetcher(Generic[Q, R]):
             cls.extract_data, query=query, credentials=credentials, **kwargs
         )
         return cls.transform_data(query=query, data=data, **kwargs)
+
+    @classmethod
+    async def stream_data(
+        cls,
+        params: Dict[str, Any],
+        credentials: Optional[Dict[str, str]] = None,
+        **kwargs,
+    ) -> Union[AsyncIterator[R], AsyncIterator[AnnotatedResult[R]]]:
+        """Fetch data from a provider."""
+        query = cls.transform_query(params=params)
+        data = await maybe_coroutine(
+            cls.aextract_data, query=query, credentials=credentials, **kwargs
+        )
+        transformed_data = cls.atransform_data(query=query, data=data, **kwargs)
+        async for d in transformed_data:
+            yield d
 
     @classproperty
     def query_params_type(self) -> Q:
